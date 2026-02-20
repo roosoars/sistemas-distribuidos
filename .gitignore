@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Node/Next
+web/node_modules/
+web/.next/
+
+# iOS/Xcode user data
+ios/**/*.xcuserstate
+ios/**/xcuserdata/
+
+# Env/secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+GoogleService-Info.plist
+google-services.json
