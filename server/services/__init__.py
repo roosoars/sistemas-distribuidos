@@ -1,0 +1,1 @@
+"""NATS-only service entrypoints."""
