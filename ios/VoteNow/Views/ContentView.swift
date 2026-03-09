@@ -38,8 +38,6 @@ struct ContentView: View {
                 }
             }
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("VoteNow")
-            .navigationBarTitleDisplayMode(.inline)
             .alert("Status", isPresented: $viewModel.showAlert) {
                 Button("OK", role: .cancel) { }
             } message: {
@@ -52,18 +50,10 @@ struct ContentView: View {
     }
     private var headerView: some View {
         VStack(spacing: 12) {
-            Image(systemName: "archivebox.fill")
-                .font(.system(size: 50))
-                .foregroundColor(.blue)
-
             Text("Sistema de Votação")
                 .font(.title2)
                 .bold()
                 .foregroundColor(.primary)
-
-            Text("Conectado via Directory Proxy")
-                .font(.footnote)
-                .foregroundColor(.secondary)
         }
     }
     private var statusView: some View {

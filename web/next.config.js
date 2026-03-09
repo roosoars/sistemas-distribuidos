@@ -2,9 +2,9 @@
 const nextConfig = {
   output: 'standalone',
   env: {
-    NEXT_PUBLIC_API_S1: process.env.NEXT_PUBLIC_API_S1 || 'http://localhost:9001',
-    NEXT_PUBLIC_API_S2: process.env.NEXT_PUBLIC_API_S2 || 'http://localhost:9002',
-    NEXT_PUBLIC_API_S3: process.env.NEXT_PUBLIC_API_S3 || 'http://localhost:9003',
+    NEXT_PUBLIC_NATS_WS_URL: process.env.NEXT_PUBLIC_NATS_WS_URL || 'ws://localhost:9222',
+    NEXT_PUBLIC_NATS_USER: process.env.NEXT_PUBLIC_NATS_USER || 'app_web',
+    NEXT_PUBLIC_NATS_PASSWORD: process.env.NEXT_PUBLIC_NATS_PASSWORD || 'app_web_dev',
   },
 }
 

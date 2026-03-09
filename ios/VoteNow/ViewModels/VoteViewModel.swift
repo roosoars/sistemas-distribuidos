@@ -23,14 +23,12 @@ class VoteViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     init() {
-        self.socketManager = SocketManager(
-            directoryHost: "localhost",
-            directoryPort: 9000
-        )
+        self.socketManager = SocketManager(roomId: "default")
 
         setupBindings()
     }
     private func setupBindings() {
+        // Repassa para a View o estado vindo do SocketManager.
         socketManager.$connectionStatus
             .assign(to: \.connectionStatus, on: self)
             .store(in: &cancellables)
@@ -55,7 +53,7 @@ class VoteViewModel: ObservableObject {
         guard let candidateId = selectedCandidate else { return }
 
         do {
-            let result = try await socketManager.sendVote(option: candidateId)
+            _ = try await socketManager.sendVote(option: candidateId)
             let generator = UINotificationFeedbackGenerator()
             generator.notificationOccurred(.success)
 

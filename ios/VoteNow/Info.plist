@@ -46,6 +46,14 @@
         <string>UIInterfaceOrientationLandscapeLeft</string>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
+    <key>NATS_HOST</key>
+    <string>127.0.0.1</string>
+    <key>NATS_PORT</key>
+    <integer>4222</integer>
+    <key>NATS_USER</key>
+    <string>app_ios</string>
+    <key>NATS_PASSWORD</key>
+    <string>app_ios_dev</string>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsArbitraryLoads</key>

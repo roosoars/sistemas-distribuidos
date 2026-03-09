@@ -1,117 +1,190 @@
-# Docker Compose - Sistema de Votacao Distribuido (local)
-# Deploy: docker compose up -d
-
 services:
-  # NameServer - Service Discovery (local)
-  nameserver:
-    build:
-      context: ./server
-      dockerfile: Dockerfile
-    command: >
-      python nameserver.py
-        --port 9000
-        --http-port 9080
+  nats-1:
+    image: nats:2.12.4
+    command: -c /etc/nats/nats1.conf
+    volumes:
+      - ./server/natsinfra/config:/etc/nats
+      - nats1_data:/data/jetstream
     ports:
-      - "9000:9000"   # TCP (clientes iOS)
-      - "9080:9080"   # HTTP API (clientes web)
-    environment:
-      - PYTHONUNBUFFERED=1
+      - "4222:4222"
+      - "6222:6222"
+      - "8222:8222"
+      - "9222:9222"
     restart: unless-stopped
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:9080/health', timeout=3)"
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 3
 
-  # Tally Server S1
-  s1:
+  nats-2:
+    image: nats:2.12.4
+    command: -c /etc/nats/nats2.conf
+    volumes:
+      - ./server/natsinfra/config:/etc/nats
+      - nats2_data:/data/jetstream
+    ports:
+      - "4223:4222"
+      - "6223:6222"
+      - "8223:8222"
+      - "9223:9222"
+    restart: unless-stopped
+
+  nats-3:
+    image: nats:2.12.4
+    command: -c /etc/nats/nats3.conf
+    volumes:
+      - ./server/natsinfra/config:/etc/nats
+      - nats3_data:/data/jetstream
+    ports:
+      - "4224:4222"
+      - "6224:6222"
+      - "8224:8222"
+      - "9224:9222"
+    restart: unless-stopped
+
+  vote-api:
     build:
       context: ./server
       dockerfile: Dockerfile
-    command: >
-      python tally_server.py
-        --id s1
-        --port 8001
-        --http-port 9001
-        --peers "s2:s2:8002,s3:s3:8003"
-        --nameserver-host nameserver
-        --nameserver-port 9000
-        --advertised-host localhost
-    ports:
-      - "8001:8001"   # TCP
-      - "9001:9001"   # HTTP
+    command: sh -c "python -m natsinfra.bootstrap && python -m services.vote_api_service"
     environment:
       - PYTHONUNBUFFERED=1
+      - NATS_SERVERS=nats://app_backend:app_backend_dev@nats-1:4222,nats://app_backend:app_backend_dev@nats-2:4222,nats://app_backend:app_backend_dev@nats-3:4222
+      - NATS_USER=app_backend
+      - NATS_PASSWORD=app_backend_dev
+      - MONITOR_SERVER_IDS=s1,s2,s3
     depends_on:
-      - nameserver
+      - nats-1
+      - nats-2
+      - nats-3
+      - monitor-s1
+      - monitor-s2
+      - monitor-s3
     restart: unless-stopped
 
-  # Tally Server S2
-  s2:
+  vote-processor:
     build:
       context: ./server
       dockerfile: Dockerfile
-    command: >
-      python tally_server.py
-        --id s2
-        --port 8002
-        --http-port 9002
-        --peers "s1:s1:8001,s3:s3:8003"
-        --nameserver-host nameserver
-        --nameserver-port 9000
-        --advertised-host localhost
-    ports:
-      - "8002:8002"   # TCP
-      - "9002:9002"   # HTTP
+    command: sh -c "python -m natsinfra.bootstrap && python -m services.vote_processor_service"
     environment:
       - PYTHONUNBUFFERED=1
+      - NATS_SERVERS=nats://app_backend:app_backend_dev@nats-1:4222,nats://app_backend:app_backend_dev@nats-2:4222,nats://app_backend:app_backend_dev@nats-3:4222
+      - NATS_USER=app_backend
+      - NATS_PASSWORD=app_backend_dev
     depends_on:
-      - nameserver
+      - nats-1
+      - nats-2
+      - nats-3
     restart: unless-stopped
 
-  # Tally Server S3 (sera o lider - maior ID)
-  s3:
+  vote-admin:
     build:
       context: ./server
       dockerfile: Dockerfile
-    command: >
-      python tally_server.py
-        --id s3
-        --port 8003
-        --http-port 9003
-        --peers "s1:s1:8001,s2:s2:8002"
-        --nameserver-host nameserver
-        --nameserver-port 9000
-        --advertised-host localhost
-    ports:
-      - "8003:8003"   # TCP
-      - "9003:9003"   # HTTP
+    command: sh -c "python -m natsinfra.bootstrap && python -m services.admin_service"
     environment:
       - PYTHONUNBUFFERED=1
+      - NATS_SERVERS=nats://app_backend:app_backend_dev@nats-1:4222,nats://app_backend:app_backend_dev@nats-2:4222,nats://app_backend:app_backend_dev@nats-3:4222
+      - NATS_USER=app_backend
+      - NATS_PASSWORD=app_backend_dev
+      - MONITOR_SERVER_IDS=s1,s2,s3
     depends_on:
-      - nameserver
+      - nats-1
+      - nats-2
+      - nats-3
     restart: unless-stopped
 
-  # Web Dashboard (local)
+  monitor-s1:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    command: sh -c "python -m natsinfra.bootstrap && python -m services.monitor_node_service"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - NATS_SERVERS=nats://app_backend:app_backend_dev@nats-1:4222,nats://app_backend:app_backend_dev@nats-2:4222,nats://app_backend:app_backend_dev@nats-3:4222
+      - NATS_USER=app_backend
+      - NATS_PASSWORD=app_backend_dev
+      - MONITOR_ROOM_ID=default
+      - MONITOR_SERVER_ID=s1
+      - MONITOR_SERVICE_NAME=tally-s1-default
+      - MONITOR_ADDRESS=s1
+      - MONITOR_PORT=8001
+      - MONITOR_HTTP_PORT=9001
+    depends_on:
+      - nats-1
+      - nats-2
+      - nats-3
+    restart: unless-stopped
+
+  monitor-s2:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    command: sh -c "python -m natsinfra.bootstrap && python -m services.monitor_node_service"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - NATS_SERVERS=nats://app_backend:app_backend_dev@nats-1:4222,nats://app_backend:app_backend_dev@nats-2:4222,nats://app_backend:app_backend_dev@nats-3:4222
+      - NATS_USER=app_backend
+      - NATS_PASSWORD=app_backend_dev
+      - MONITOR_ROOM_ID=default
+      - MONITOR_SERVER_ID=s2
+      - MONITOR_SERVICE_NAME=tally-s2-default
+      - MONITOR_ADDRESS=s2
+      - MONITOR_PORT=8002
+      - MONITOR_HTTP_PORT=9002
+    depends_on:
+      - nats-1
+      - nats-2
+      - nats-3
+    restart: unless-stopped
+
+  monitor-s3:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    command: sh -c "python -m natsinfra.bootstrap && python -m services.monitor_node_service"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - NATS_SERVERS=nats://app_backend:app_backend_dev@nats-1:4222,nats://app_backend:app_backend_dev@nats-2:4222,nats://app_backend:app_backend_dev@nats-3:4222
+      - NATS_USER=app_backend
+      - NATS_PASSWORD=app_backend_dev
+      - MONITOR_ROOM_ID=default
+      - MONITOR_SERVER_ID=s3
+      - MONITOR_SERVICE_NAME=tally-s3-default
+      - MONITOR_ADDRESS=s3
+      - MONITOR_PORT=8003
+      - MONITOR_HTTP_PORT=9003
+    depends_on:
+      - nats-1
+      - nats-2
+      - nats-3
+    restart: unless-stopped
+
   web:
     build:
       context: ./web
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_NAMESERVER_URL: http://localhost:9080
+        NEXT_PUBLIC_NATS_WS_URL: ws://localhost:9222
+        NEXT_PUBLIC_NATS_USER: app_web
+        NEXT_PUBLIC_NATS_PASSWORD: app_web_dev
     ports:
       - "3000:3000"
     expose:
       - "3000"
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_NAMESERVER_URL=http://localhost:9080
+      - NEXT_PUBLIC_NATS_WS_URL=ws://localhost:9222
+      - NEXT_PUBLIC_NATS_USER=app_web
+      - NEXT_PUBLIC_NATS_PASSWORD=app_web_dev
     depends_on:
-      - nameserver
+      - nats-1
+      - vote-api
+      - vote-processor
+      - vote-admin
+      - monitor-s1
+      - monitor-s2
+      - monitor-s3
     restart: unless-stopped
+
+volumes:
+  nats1_data:
+  nats2_data:
+  nats3_data:
