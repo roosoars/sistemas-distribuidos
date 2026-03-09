@@ -37,6 +37,7 @@ final class NATSService {
         var status = (response["status"] as? String) ?? "error"
         let deadline = Date().addingTimeInterval(6.0)
 
+        // Consulta o status enquanto o backend conclui o processamento.
         while status == "pending", Date() < deadline {
             try await Task.sleep(nanoseconds: 300_000_000)
             response = try await requestJSON(
@@ -139,6 +140,7 @@ private final class NATSRequestClient {
             try await sendRaw("CONNECT {\"lang\":\"swift\",\"version\":\"1.0.0\",\"protocol\":1,\"verbose\":false,\"pedantic\":false,\"user\":\"\(user)\",\"pass\":\"\(password)\"}\r\n")
             try await sendRaw("PING\r\n")
 
+            // Usa inbox temporária para receber a resposta da requisição.
             let inbox = "_INBOX.\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
             let sid = String(Int.random(in: 1000...9999))
             try await sendRaw("SUB \(inbox) \(sid)\r\n")

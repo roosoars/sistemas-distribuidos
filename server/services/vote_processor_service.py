@@ -1,5 +1,5 @@
 """
-Processes vote commands from JetStream with idempotent state transitions.
+Processa comandos de voto do JetStream com transições idempotentes de estado.
 """
 
 from __future__ import annotations
@@ -12,9 +12,9 @@ from typing import Any, Dict, Optional
 
 from nats.aio.msg import Msg
 from nats.errors import TimeoutError as NATSTimeoutError
-from nats.js.errors import KeyNotFoundError, KeyWrongLastSequenceError, NoKeysError
+from nats.js.errors import KeyNotFoundError, NoKeysError
 
-from core.nats_client import NATSClient
+from core.nats_client import NATSClient, is_kv_revision_conflict
 from services.vote_protocol import (
     RESULT_SCHEMA,
     VoteCommand,
@@ -45,28 +45,28 @@ class VoteProcessorService:
         await self.client.connect("vote-processor")
         assert self.client.js is not None
 
-        self.kv_state = await self.client.js.key_value("KV_VOTE_STATE")
-        self.kv_count = await self.client.js.key_value("KV_VOTE_COUNT")
+        self.kv_state = await self.client.get_key_value("KV_VOTE_STATE")
+        self.kv_count = await self.client.get_key_value("KV_VOTE_COUNT")
         self.sub = await self.client.js.pull_subscribe(
             subject="vote.cmd.*",
             durable="VOTE_CMD_PROC",
             stream="VOTE_CMD",
         )
-        logger.info("Vote processor started and bound to VOTE_CMD_PROC")
+        logger.info("Processador de votos iniciado e associado ao VOTE_CMD_PROC")
 
         try:
             while self.running:
                 try:
                     messages = await self.sub.fetch(batch=25, timeout=2)
                 except NATSTimeoutError:
-                    # Pull consumers time out when idle; this is expected.
+                    # Tempo limite em consumidor pull ocioso é esperado.
                     continue
                 if not messages:
                     continue
                 for msg in messages:
                     await self._process_message(msg)
         except asyncio.CancelledError:
-            logger.info("Processor cancelled")
+            logger.info("Processador cancelado")
         finally:
             await self.client.close()
 
@@ -106,7 +106,7 @@ class VoteProcessorService:
 
             await msg.ack()
         except Exception as exc:
-            logger.exception("Failed to process vote command: %s", exc)
+            logger.exception("Falha ao processar comando de voto: %s", exc)
             await msg.nak()
 
     async def _ensure_received_state(self, cmd: VoteCommand, key: str) -> Dict[str, Any]:
@@ -128,9 +128,11 @@ class VoteProcessorService:
         try:
             await self.kv_state.create(key, encode_json(received))
             return received
-        except KeyWrongLastSequenceError:
-            entry = await self.kv_state.get(key)
-            return parse_json(entry.value)
+        except Exception as exc:
+            if is_kv_revision_conflict(exc):
+                entry = await self.kv_state.get(key)
+                return parse_json(entry.value)
+            raise
 
     async def _update_state(
         self,
@@ -140,6 +142,7 @@ class VoteProcessorService:
         result: Optional[Dict[str, Any]],
     ) -> None:
         assert self.kv_state is not None
+        # CAS em loop para lidar com concorrência e reentrega.
         for _ in range(25):
             try:
                 entry = await self.kv_state.get(key)
@@ -155,9 +158,11 @@ class VoteProcessorService:
             try:
                 await self.kv_state.update(key, encode_json(current), entry.revision)
                 return
-            except KeyWrongLastSequenceError:
-                continue
-        raise RuntimeError(f"could not update vote state for key={key}")
+            except Exception as exc:
+                if is_kv_revision_conflict(exc):
+                    continue
+                raise
+        raise RuntimeError(f"não foi possível atualizar estado do voto para key={key}")
 
     async def _increment_and_collect_counts(
         self,
@@ -170,6 +175,7 @@ class VoteProcessorService:
     async def _increment_candidate(self, room_id: str, candidate_id: str) -> None:
         assert self.kv_count is not None
         key = vote_count_key(room_id, candidate_id)
+        # CAS em loop para não perder incremento em concorrência.
         for _ in range(25):
             try:
                 entry = await self.kv_count.get(key)
@@ -182,11 +188,15 @@ class VoteProcessorService:
                 try:
                     await self.kv_count.create(key, encode_json({"count": 1}))
                     return
-                except KeyWrongLastSequenceError:
+                except Exception as exc:
+                    if is_kv_revision_conflict(exc):
+                        continue
+                    raise
+            except Exception as exc:
+                if is_kv_revision_conflict(exc):
                     continue
-            except KeyWrongLastSequenceError:
-                continue
-        raise RuntimeError(f"failed to update counter for {key}")
+                raise
+        raise RuntimeError(f"falha ao atualizar contador para {key}")
 
     async def _collect_counts(self, room_id: str) -> Dict[str, int]:
         assert self.kv_count is not None

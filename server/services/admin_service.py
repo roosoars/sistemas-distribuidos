@@ -1,5 +1,5 @@
 """
-Administrative operations coordinated with KV CAS locks and fencing tokens.
+Operações administrativas coordenadas com lock CAS em KV e fencing token.
 """
 
 from __future__ import annotations
@@ -13,9 +13,9 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from nats.aio.msg import Msg
-from nats.js.errors import KeyNotFoundError, KeyWrongLastSequenceError, NoKeysError
+from nats.js.errors import KeyNotFoundError, NoKeysError
 
-from core.nats_client import NATSClient, wait_forever
+from core.nats_client import NATSClient, is_kv_revision_conflict, wait_forever
 from services.vote_protocol import (
     encode_json,
     lock_key,
@@ -64,11 +64,11 @@ class AdminService:
         assert self.client.nc is not None
         assert self.client.js is not None
 
-        self.kv_control = await self.client.js.key_value("KV_CONTROL")
-        self.kv_state = await self.client.js.key_value("KV_VOTE_STATE")
-        self.kv_count = await self.client.js.key_value("KV_VOTE_COUNT")
-        self.kv_monitor_control = await self.client.js.key_value("KV_MONITOR_CONTROL")
-        self.kv_monitor_leader = await self.client.js.key_value("KV_MONITOR_LEADER")
+        self.kv_control = await self.client.get_key_value("KV_CONTROL")
+        self.kv_state = await self.client.get_key_value("KV_VOTE_STATE")
+        self.kv_count = await self.client.get_key_value("KV_VOTE_COUNT")
+        self.kv_monitor_control = await self.client.get_key_value("KV_MONITOR_CONTROL")
+        self.kv_monitor_leader = await self.client.get_key_value("KV_MONITOR_LEADER")
 
         self.reset_sub = await self.client.nc.subscribe(
             "svc.vote.admin.reset.*",
@@ -80,7 +80,7 @@ class AdminService:
             queue="vote-admin",
             cb=self._handle_server_control,
         )
-        logger.info("Admin service listening on svc.vote.admin.reset.* and svc.vote.admin.server.*")
+        logger.info("Serviço admin escutando em svc.vote.admin.reset.* e svc.vote.admin.server.*")
         await wait_forever(self.stop_event)
 
     async def stop(self) -> None:
@@ -252,7 +252,7 @@ class AdminService:
                         "command_id": command_id,
                     }
                 )
-            except Exception as exc:  # pragma: no cover - defensive guard
+            except Exception as exc:  # pragma: no cover - proteção extra
                 results.append(
                     {
                         "server_id": sid,
@@ -288,12 +288,14 @@ class AdminService:
         payload["forced_expire"] = True
         try:
             await self.kv_monitor_leader.update(key, encode_json(payload), entry.revision)
-        except KeyWrongLastSequenceError:
-            pass
+        except Exception as exc:
+            if not is_kv_revision_conflict(exc):
+                raise
 
     async def _acquire_lock(self, room_id: str, operation: str) -> Optional[LockLease]:
         assert self.kv_control is not None
         key = lock_key(room_id, operation)
+        # Token de fencing evita operações administrativas simultâneas.
         value = {
             "holder": self.node_id,
             "room_id": room_id,
@@ -303,8 +305,10 @@ class AdminService:
         }
         try:
             token = await self.kv_control.create(key, encode_json(value))
-        except KeyWrongLastSequenceError:
-            return None
+        except Exception as exc:
+            if is_kv_revision_conflict(exc):
+                return None
+            raise
 
         async def renew_loop() -> None:
             nonlocal token
@@ -314,7 +318,7 @@ class AdminService:
                 try:
                     token = await self.kv_control.update(key, encode_json(value), token)
                 except Exception:
-                    logger.warning("Lock renewal failed for %s", key)
+                    logger.warning("Falha ao renovar lock %s", key)
                     return
 
         task = asyncio.create_task(renew_loop())
@@ -330,7 +334,7 @@ class AdminService:
         try:
             await self.kv_control.delete(lock.key, last=lock.token)
         except Exception:
-            logger.warning("Could not release lock %s", lock.key)
+            logger.warning("Não foi possível liberar lock %s", lock.key)
 
     async def _delete_room_keys(self, kv, prefix: str) -> int:
         deleted = 0
@@ -375,12 +379,15 @@ class AdminService:
             return
         except KeyNotFoundError:
             pass
-        except KeyWrongLastSequenceError:
-            pass
+        except Exception as exc:
+            if not is_kv_revision_conflict(exc):
+                raise
 
         try:
             await kv.create(key, encoded)
-        except KeyWrongLastSequenceError:
+        except Exception as exc:
+            if not is_kv_revision_conflict(exc):
+                raise
             entry = await kv.get(key)
             await kv.update(key, encoded, entry.revision)
 

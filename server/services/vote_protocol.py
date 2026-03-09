@@ -1,5 +1,5 @@
 """
-Shared protocol helpers for NATS voting services.
+Helpers de protocolo compartilhados entre os serviços de votação via NATS.
 """
 
 from __future__ import annotations
@@ -49,11 +49,11 @@ def encode_json(payload: Dict[str, Any]) -> bytes:
 
 def validate_submit_payload(payload: Dict[str, Any]) -> Tuple[bool, str]:
     if payload.get("schema") != SUBMIT_SCHEMA:
-        return False, f"schema must be {SUBMIT_SCHEMA}"
+        return False, f"schema deve ser {SUBMIT_SCHEMA}"
     required = ("vote_id", "candidate_id", "room_id", "voter_id")
     for key in required:
         if not payload.get(key):
-            return False, f"missing required field: {key}"
+            return False, f"campo obrigatório ausente: {key}"
     return True, ""
 
 

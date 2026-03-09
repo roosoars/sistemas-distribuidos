@@ -1,7 +1,3 @@
-// layout.tsx
-// Layout raiz do aplicativo Next.js.
-// Define metadados globais e estrutura HTML base.
-
 import type { Metadata } from 'next'
 import './globals.css'
 

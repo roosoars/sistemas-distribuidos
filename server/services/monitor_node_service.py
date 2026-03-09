@@ -1,5 +1,5 @@
 """
-NATS-only monitor node for leadership and failure simulation.
+Nó de monitoramento via NATS para eleição de líder e simulação de falha.
 """
 
 from __future__ import annotations
@@ -12,9 +12,9 @@ import time
 import uuid
 from typing import Any, Dict, Optional
 
-from nats.js.errors import KeyNotFoundError, KeyWrongLastSequenceError
+from nats.js.errors import KeyNotFoundError
 
-from core.nats_client import NATSClient
+from core.nats_client import NATSClient, is_kv_revision_conflict
 from services.vote_protocol import (
     encode_json,
     monitor_control_all_key,
@@ -68,12 +68,12 @@ class MonitorNodeService:
         await self.client.connect(f"monitor-{self.server_id}")
         assert self.client.js is not None
 
-        self.kv_state = await self.client.js.key_value("KV_MONITOR_STATE")
-        self.kv_leader = await self.client.js.key_value("KV_MONITOR_LEADER")
-        self.kv_control = await self.client.js.key_value("KV_MONITOR_CONTROL")
+        self.kv_state = await self.client.get_key_value("KV_MONITOR_STATE")
+        self.kv_leader = await self.client.get_key_value("KV_MONITOR_LEADER")
+        self.kv_control = await self.client.get_key_value("KV_MONITOR_CONTROL")
 
         logger.info(
-            "Monitor node online server_id=%s room=%s service_name=%s",
+            "Nó monitor online server_id=%s room=%s service_name=%s",
             self.server_id,
             self.room_id,
             self.service_name,
@@ -91,6 +91,7 @@ class MonitorNodeService:
 
     async def _apply_control_commands(self) -> None:
         assert self.kv_control is not None
+        # Processa comando do nó e comando global da sala.
         for key in (
             monitor_control_key(self.room_id, self.server_id),
             monitor_control_all_key(self.room_id),
@@ -114,10 +115,10 @@ class MonitorNodeService:
             action = str(payload.get("action") or "").strip().lower()
             if action == "stop":
                 self.simulated_failure = True
-                logger.info("Applied control action stop for %s", self.server_id)
+                logger.info("Ação de controle stop aplicada para %s", self.server_id)
             elif action in {"recover", "restart"}:
                 self.simulated_failure = False
-                logger.info("Applied control action %s for %s", action, self.server_id)
+                logger.info("Ação de controle %s aplicada para %s", action, self.server_id)
 
             self.last_control_by_key[key] = command_id
             self.last_applied_command_id = command_id
@@ -125,6 +126,7 @@ class MonitorNodeService:
     async def _sync_leader(self, now: float) -> Optional[str]:
         assert self.kv_leader is not None
 
+        # Em falha simulada, o nó abre mão da liderança.
         if self.simulated_failure:
             await self._resign_if_leader(now)
             return None
@@ -162,8 +164,10 @@ class MonitorNodeService:
                 int(leader_entry["_revision"]),
             )
             return True
-        except KeyWrongLastSequenceError:
-            return False
+        except Exception as exc:
+            if is_kv_revision_conflict(exc):
+                return False
+            raise
 
     async def _acquire_leader(self, leader_entry: Optional[Dict[str, Any]], now: float) -> bool:
         assert self.kv_leader is not None
@@ -176,17 +180,21 @@ class MonitorNodeService:
                     encode_json(payload),
                     int(leader_entry["_revision"]),
                 )
-                logger.info("Acquired leader lease for room=%s server=%s", self.room_id, self.server_id)
+                logger.info("Lease de líder adquirida room=%s server=%s", self.room_id, self.server_id)
                 return True
-            except KeyWrongLastSequenceError:
-                return False
+            except Exception as exc:
+                if is_kv_revision_conflict(exc):
+                    return False
+                raise
 
         try:
             await self.kv_leader.create(key, encode_json(payload))
-            logger.info("Created leader lease for room=%s server=%s", self.room_id, self.server_id)
+            logger.info("Lease de líder criada room=%s server=%s", self.room_id, self.server_id)
             return True
-        except KeyWrongLastSequenceError:
-            return False
+        except Exception as exc:
+            if is_kv_revision_conflict(exc):
+                return False
+            raise
 
     async def _resign_if_leader(self, now: float) -> None:
         assert self.kv_leader is not None
@@ -244,17 +252,20 @@ class MonitorNodeService:
             return
         except KeyNotFoundError:
             pass
-        except KeyWrongLastSequenceError:
-            pass
+        except Exception as exc:
+            if not is_kv_revision_conflict(exc):
+                raise
 
         try:
             await self.kv_state.create(key, encode_json(payload))
-        except KeyWrongLastSequenceError:
+        except Exception as exc:
+            if not is_kv_revision_conflict(exc):
+                raise
             try:
                 entry = await self.kv_state.get(key)
                 await self.kv_state.update(key, encode_json(payload), entry.revision)
             except Exception:
-                logger.warning("Could not publish monitor state for %s", self.server_id)
+                logger.warning("Não foi possível publicar estado do monitor para %s", self.server_id)
 
     def _leader_payload(self, now: float) -> Dict[str, Any]:
         return {

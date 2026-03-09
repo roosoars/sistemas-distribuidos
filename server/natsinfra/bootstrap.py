@@ -1,5 +1,5 @@
 """
-Bootstrap JetStream streams/consumers/KV buckets for the voting platform.
+Provisiona streams, consumers e buckets KV no JetStream para a plataforma.
 """
 
 from __future__ import annotations
@@ -32,16 +32,16 @@ async def ensure(name: str, creator: Callable[[], asyncio.Future]) -> None:
     for attempt in range(1, 7):
         try:
             await creator()
-            logger.info("Created %s", name)
+            logger.info("Recurso criado: %s", name)
             return
         except BadRequestError as exc:
-            # JetStream returns "stream name already in use" / "consumer already exists".
-            logger.info("%s already exists (%s)", name, exc.description)
+            # Inicialização idempotente: segue se o recurso já existir.
+            logger.info("%s já existe (%s)", name, exc.description)
             return
         except NATSTimeoutError:
             if attempt == 6:
                 raise
-            logger.warning("Timeout creating %s (attempt %d/6), retrying...", name, attempt)
+            logger.warning("Tempo esgotado ao criar %s (tentativa %d/6), tentando novamente...", name, attempt)
             await asyncio.sleep(1.0)
 
 
@@ -99,7 +99,7 @@ async def main() -> None:
             lambda: client.js.create_key_value(
                 config=api.KeyValueConfig(
                     bucket="KV_VOTE_STATE",
-                    description="Vote idempotency and state machine",
+                    description="Idempotência e máquina de estados de votos",
                     history=10,
                     ttl=30 * 24 * 3600,
                     storage=api.StorageType.FILE,
@@ -112,7 +112,7 @@ async def main() -> None:
             lambda: client.js.create_key_value(
                 config=api.KeyValueConfig(
                     bucket="KV_VOTE_COUNT",
-                    description="Vote counters per room/candidate",
+                    description="Contadores de voto por sala/candidato",
                     history=64,
                     storage=api.StorageType.FILE,
                     replicas=replicas,
@@ -124,7 +124,7 @@ async def main() -> None:
             lambda: client.js.create_key_value(
                 config=api.KeyValueConfig(
                     bucket="KV_CONTROL",
-                    description="Locks and fencing tokens",
+                    description="Locks e tokens de fencing",
                     history=5,
                     ttl=15.0,
                     storage=api.StorageType.FILE,
@@ -137,7 +137,7 @@ async def main() -> None:
             lambda: client.js.create_key_value(
                 config=api.KeyValueConfig(
                     bucket="KV_MONITOR_STATE",
-                    description="Monitor node heartbeats and status",
+                    description="Heartbeats e status dos nós de monitor",
                     history=10,
                     ttl=20.0,
                     storage=api.StorageType.FILE,
@@ -150,7 +150,7 @@ async def main() -> None:
             lambda: client.js.create_key_value(
                 config=api.KeyValueConfig(
                     bucket="KV_MONITOR_LEADER",
-                    description="Monitor leader lease by room",
+                    description="Lease de líder do monitor por sala",
                     history=20,
                     ttl=60.0,
                     storage=api.StorageType.FILE,
@@ -163,7 +163,7 @@ async def main() -> None:
             lambda: client.js.create_key_value(
                 config=api.KeyValueConfig(
                     bucket="KV_MONITOR_CONTROL",
-                    description="Monitor stop/recover/restart commands",
+                    description="Comandos stop/recover/restart de monitor",
                     history=20,
                     ttl=24 * 3600,
                     storage=api.StorageType.FILE,

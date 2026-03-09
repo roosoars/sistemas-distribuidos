@@ -3,6 +3,7 @@
 import { connect, JSONCodec, NatsConnection } from 'nats.ws'
 
 const jc = JSONCodec()
+// Reutiliza uma única conexão WebSocket no painel.
 let ncPromise: Promise<NatsConnection> | null = null
 
 export async function getNatsConnection(): Promise<NatsConnection> {
@@ -100,6 +101,7 @@ export type MonitorServerActionResponse = {
 
 export async function getMonitorStatus(roomId: string): Promise<MonitorStatus> {
   const nc = await getNatsConnection()
+  // Busca o estado atual do monitor.
   const msg = await nc.request(
     `svc.vote.monitor.status.${roomId}`,
     jc.encode({
@@ -114,6 +116,7 @@ export async function getMonitorStatus(roomId: string): Promise<MonitorStatus> {
 
 export async function resetMonitor(roomId: string): Promise<MonitorReset> {
   const nc = await getNatsConnection()
+  // Solicita reset operacional da sala.
   const msg = await nc.request(
     `svc.vote.monitor.reset.${roomId}`,
     jc.encode({
@@ -130,6 +133,7 @@ export async function controlMonitorServer(
   req: Omit<MonitorServerActionRequest, 'schema' | 'trace_id'>,
 ): Promise<MonitorServerActionResponse> {
   const nc = await getNatsConnection()
+  // Encaminha ação de parada/recuperação para um servidor.
   const msg = await nc.request(
     `svc.vote.monitor.server.${req.room_id}`,
     jc.encode({

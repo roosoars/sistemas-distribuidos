@@ -1,1 +1,0 @@
-"""NATS infrastructure bootstrap package."""

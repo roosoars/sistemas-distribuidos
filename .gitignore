@@ -1,20 +1,25 @@
-# macOS
+# Sistema
 .DS_Store
 
-# Node/Next
+# Frontend
 web/node_modules/
 web/.next/
 web/tsconfig.tsbuildinfo
 
-# Python artifacts
+# Python
 **/__pycache__/
 **/*.pyc
 
-# iOS/Xcode user data
+# iOS/Xcode
 ios/**/*.xcuserstate
 ios/**/xcuserdata/
+**/.idea/
+*.iml
 
-# Env/secrets
+# Ferramentas locais
+.tools/
+
+# Ambiente e segredos
 .env
 .env.*
 *.pem

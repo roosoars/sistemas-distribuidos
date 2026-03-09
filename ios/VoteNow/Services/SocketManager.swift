@@ -35,6 +35,7 @@ final class SocketManager: ObservableObject {
         isHealthCheckRunning = true
 
         Task {
+            // Atualiza o status de conexão do app em intervalos fixos.
             while true {
                 do {
                     let start = Date()
@@ -48,7 +49,7 @@ final class SocketManager: ObservableObject {
                 } catch {
                     await MainActor.run {
                         self.connectionStatus = "Desconectado"
-                        self.currentLeader = "NATS indisponivel"
+                        self.currentLeader = "NATS indisponível"
                     }
                 }
 

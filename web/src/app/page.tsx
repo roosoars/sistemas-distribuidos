@@ -27,7 +27,6 @@ type ServerCard = {
   serviceName: string
   serverId: string
   address: string
-  port: number
   httpPort: number
   role: string
   currentLeader: string
@@ -52,7 +51,6 @@ function toServerCard(server: MonitorServerStatus): ServerCard {
     serviceName: server.service_name,
     serverId: server.server_id,
     address: server.address,
-    port: server.port,
     httpPort: server.http_port,
     role: server.role,
     currentLeader: server.current_leader,

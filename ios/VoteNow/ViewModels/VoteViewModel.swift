@@ -28,6 +28,7 @@ class VoteViewModel: ObservableObject {
         setupBindings()
     }
     private func setupBindings() {
+        // Repassa para a View o estado vindo do SocketManager.
         socketManager.$connectionStatus
             .assign(to: \.connectionStatus, on: self)
             .store(in: &cancellables)

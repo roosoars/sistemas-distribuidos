@@ -1,5 +1,5 @@
 """
-NATS request/reply API for vote submit, vote status and monitor operations.
+API NATS request/reply para envio de voto, consulta de status e monitoramento.
 """
 
 from __future__ import annotations
@@ -60,10 +60,10 @@ class VoteAPIService:
         assert self.client.nc is not None
         assert self.client.js is not None
 
-        self.kv_state = await self.client.js.key_value("KV_VOTE_STATE")
-        self.kv_count = await self.client.js.key_value("KV_VOTE_COUNT")
-        self.kv_monitor_state = await self.client.js.key_value("KV_MONITOR_STATE")
-        self.kv_monitor_leader = await self.client.js.key_value("KV_MONITOR_LEADER")
+        self.kv_state = await self.client.get_key_value("KV_VOTE_STATE")
+        self.kv_count = await self.client.get_key_value("KV_VOTE_COUNT")
+        self.kv_monitor_state = await self.client.get_key_value("KV_MONITOR_STATE")
+        self.kv_monitor_leader = await self.client.get_key_value("KV_MONITOR_LEADER")
 
         self.subscriptions.append(
             await self.client.nc.subscribe(
@@ -108,7 +108,7 @@ class VoteAPIService:
             )
         )
         logger.info(
-            "Vote API service listening on "
+            "Serviço Vote API escutando em "
             "svc.vote.submit/status/results + "
             "svc.vote.monitor.status/reset/server"
         )
@@ -143,6 +143,7 @@ class VoteAPIService:
             trace_id = cmd.trace_id
             subject = f"vote.cmd.{cmd.room_id}"
             assert self.client.js is not None
+            # Evita dupla contagem em reenvio do mesmo voto.
             await self.client.js.publish(
                 subject=subject,
                 payload=encode_json(
@@ -162,7 +163,7 @@ class VoteAPIService:
             result = await self._wait_for_vote_result(cmd.room_id, cmd.vote_id)
             await msg.respond(encode_json(result))
         except Exception as exc:
-            logger.exception("submit handler failed: %s", exc)
+            logger.exception("Falha no handler de submit: %s", exc)
             await msg.respond(
                 encode_json(
                     {
@@ -224,7 +225,7 @@ class VoteAPIService:
                 )
             )
         except Exception as exc:
-            logger.exception("status handler failed: %s", exc)
+            logger.exception("Falha no handler de status: %s", exc)
             await msg.respond(
                 encode_json(
                     {
@@ -254,7 +255,7 @@ class VoteAPIService:
                 )
             )
         except Exception as exc:
-            logger.exception("results handler failed: %s", exc)
+            logger.exception("Falha no handler de resultados: %s", exc)
             await msg.respond(
                 encode_json(
                     {
@@ -291,7 +292,7 @@ class VoteAPIService:
                 )
             )
         except Exception as exc:
-            logger.exception("monitor status handler failed: %s", exc)
+            logger.exception("Falha no handler de status do monitor: %s", exc)
             await msg.respond(
                 encode_json(
                     {
@@ -327,7 +328,7 @@ class VoteAPIService:
                 )
             )
         except Exception as exc:
-            logger.exception("monitor reset handler failed: %s", exc)
+            logger.exception("Falha no handler de reset do monitor: %s", exc)
             await msg.respond(
                 encode_json(
                     {
@@ -392,7 +393,7 @@ class VoteAPIService:
                 )
             )
         except Exception as exc:
-            logger.exception("monitor server action handler failed: %s", exc)
+            logger.exception("Falha no handler de ação em servidor monitor: %s", exc)
             await msg.respond(
                 encode_json(
                     {
@@ -404,6 +405,7 @@ class VoteAPIService:
             )
 
     async def _wait_for_vote_result(self, room_id: str, vote_id: str) -> Dict[str, Any]:
+        # Faz consultas curtas no KV enquanto aguarda o resultado.
         deadline = time.monotonic() + self.processing_wait_seconds
         while time.monotonic() < deadline:
             state = await self._get_vote_state(room_id, vote_id)
@@ -565,7 +567,7 @@ class VoteAPIService:
         assert self.kv_monitor_leader is not None
         now = time.time()
 
-        # Prefer lease winner when valid and healthy.
+        # Prioriza o líder com lease válida e saudável.
         try:
             entry = await self.kv_monitor_leader.get(monitor_leader_key(room_id))
             payload = parse_json(entry.value)
@@ -578,7 +580,7 @@ class VoteAPIService:
         except KeyNotFoundError:
             pass
 
-        # Fallback invariant: if at least one active server exists, return one.
+        # Se houver servidor ativo, sempre retorna um líder.
         active = [
             server
             for server in servers
